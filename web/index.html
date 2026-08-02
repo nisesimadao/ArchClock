@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>ArchClock</title>
+<style>
+  /* ------------------------------------------------------------------
+     デスクトップのウィジェット面。
+
+     壁紙はホスト(C#)がモニターの物理ピクセルちょうどに切り出して渡す。
+     マウスは低レベルフック経由で届くので :hover は効かない。カーソル位置を
+     ホストから受け取って自前で当てる。
+
+     配置モードは KDE Plasma の作法に寄せている:
+       ・掴めるものにはカーソルを乗せた時点で反応がある
+       ・ウィジェットごとに 移動 / 設定 / 削除 のハンドルが出る
+       ・動かすと画面の端・中央・他のウィジェットに吸い付く
+     ------------------------------------------------------------------ */
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden}
+
+  body{
+    background:#000;
+    color:var(--tint,#fff);
+    font-family:var(--font,"SF Pro Display"),var(--jp,"Noto Sans JP"),system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    user-select:none;cursor:default;
+  }
+
+  #bg{position:fixed;inset:0;background:center/cover no-repeat}
+  #stage{position:fixed;inset:0;opacity:var(--opacity,1)}
+
+  .w{
+    position:absolute;
+    color:var(--tint,#fff);
+    text-shadow:
+      0 1px 2px  rgba(0,0,0,calc(var(--shadow,.55) * .8)),
+      0 2px 26px rgba(0,0,0,var(--shadow,.55));
+  }
+
+  body[data-surface="glass"] .w{
+    background:rgba(255,255,255,.055);
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:18px;padding:22px 26px;
+    backdrop-filter:blur(18px) brightness(.72);
+  }
+  body[data-surface="solid"] .w{
+    background:rgba(0,0,0,.42);border-radius:18px;padding:22px 26px;
+  }
+
+  /* ================= 配置モード ================= */
+
+  body.edit .w{
+    border-radius:14px;
+    outline:1.5px dashed rgba(255,255,255,.30);
+    outline-offset:12px;
+    transition:outline-color .14s ease, background .14s ease;
+  }
+  body.edit .w.hot{
+    outline:1.5px solid rgba(255,255,255,.85);
+    background:rgba(255,255,255,.07);
+  }
+  body.edit .w.grabbing{
+    outline:1.5px solid #fff;
+    background:rgba(255,255,255,.11);
+  }
+
+  /* 各ウィジェットのハンドル。KDE の toolbox にあたる。 */
+  /* 配置モード中は常に配置しておく。display:none にすると矩形が測れなくなり、
+     カーソルをバーへ動かした瞬間に「ウィジェットの外」と判定されて消えてしまう。 */
+  .tools{
+    position:absolute;right:-12px;top:-58px;
+    display:none;align-items:center;gap:2px;
+    padding:4px;border-radius:12px;
+    background:rgba(22,22,26,.92);
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 10px 30px -8px rgba(0,0,0,.8);
+    backdrop-filter:blur(20px);
+    text-shadow:none;
+    opacity:0;transition:opacity .12s ease;
+  }
+  body.edit .tools{display:flex}
+  body.edit .w.hot .tools,
+  body.edit .w.grabbing .tools{opacity:1}
+
+  .tools .t{
+    width:38px;height:34px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;color:rgba(255,255,255,.86);
+    transition:background .12s ease,color .12s ease;
+  }
+  .tools .t.on{background:rgba(255,255,255,.18);color:#fff}
+  .tools .t.rm.on{background:#c42b1c;color:#fff}
+  .tools .label{
+    padding:0 10px 0 8px;font-size:12.5px;letter-spacing:.02em;
+    color:rgba(255,255,255,.60);white-space:nowrap;
+    font-family:var(--jp,"Noto Sans JP"),sans-serif;
+  }
+
+  /* 吸い付きの目安線 */
+  .guide{position:fixed;background:#4cc2ff;opacity:0;pointer-events:none;z-index:50}
+  .guide.v{width:1px;top:0;bottom:0}
+  .guide.h{height:1px;left:0;right:0}
+  .guide.on{opacity:.95}
+
+  /* 画面上部の案内 */
+  #hint{
+    position:fixed;left:50%;top:34px;transform:translateX(-50%) translateY(-16px);
+    display:flex;align-items:center;gap:16px;
+    padding:12px 12px 12px 22px;border-radius:999px;
+    background:rgba(22,22,26,.90);border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 16px 40px -10px rgba(0,0,0,.85);
+    backdrop-filter:blur(22px);
+    font-size:14.5px;color:rgba(255,255,255,.92);text-shadow:none;
+    font-family:var(--jp,"Noto Sans JP"),sans-serif;
+    opacity:0;pointer-events:none;
+    transition:opacity .2s ease, transform .2s cubic-bezier(.22,.61,.36,1);
+    z-index:60;
+  }
+  body.edit #hint{opacity:1;transform:translateX(-50%) translateY(0)}
+  #hint .k{
+    display:inline-block;padding:2px 8px;margin:0 2px;border-radius:6px;
+    background:rgba(255,255,255,.12);font-size:12.5px;
+  }
+  #hint .done{
+    padding:7px 18px;border-radius:999px;
+    background:#4cc2ff;color:#06202b;font-weight:600;font-size:13.5px;
+    transition:filter .12s ease;
+  }
+  #hint .done.on{filter:brightness(1.14)}
+
+  /* 何も置かれていないモニターの案内 */
+  #empty{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    display:none;text-align:center;color:rgba(255,255,255,.55);
+    font-family:var(--jp,"Noto Sans JP"),sans-serif;
+  }
+  body.edit #empty.show{display:block}
+  #empty .big{font-size:19px;margin-bottom:6px;color:rgba(255,255,255,.8)}
+  #empty .small{font-size:14px}
+
+  /* ================= 時計 ================= */
+  .clock .time{
+    line-height:1;font-weight:var(--w,250);
+    letter-spacing:-.028em;font-variant-numeric:tabular-nums;
+  }
+  .clock .time .c{opacity:.5;margin:0 .012em}
+  .clock .time .s{font-size:.30em;font-weight:400;opacity:.6;margin-left:.10em;vertical-align:.60em}
+  .clock .date{margin-top:14px;font-size:30px;font-weight:400;opacity:.86;font-family:var(--jp,"Noto Sans JP"),sans-serif}
+  .clock .meta{margin-top:9px;font-size:19px;opacity:.52;font-variant-numeric:tabular-nums}
+  .clock .meta span + span::before{content:"·";margin:0 .58em;opacity:.55}
+
+  /* ================= 計測系 ================= */
+  .gauge .head{display:flex;align-items:baseline;gap:12px;font-size:15px;letter-spacing:.10em;text-transform:uppercase;opacity:.62}
+  .gauge .head .val{margin-left:auto;font-size:38px;letter-spacing:-.02em;opacity:1;font-variant-numeric:tabular-nums;text-transform:none}
+  .gauge .bar{position:relative;height:3px;margin-top:12px;background:rgba(255,255,255,.16);border-radius:2px;overflow:hidden}
+  .gauge .bar > i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent,#fff);border-radius:2px;transition:width .45s cubic-bezier(.22,.61,.36,1)}
+  .gauge .sub{margin-top:10px;font-size:16px;opacity:.55;font-variant-numeric:tabular-nums}
+  .gauge .sub div + div{margin-top:2px}
+  /* 見出しを消したときは、値だけが残る */
+  .gauge > .val{display:block;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+
+  /* ================= プロセス ================= */
+  .procs .head{display:flex;align-items:baseline;font-size:15px;letter-spacing:.10em;text-transform:uppercase;opacity:.62;margin-bottom:14px}
+  .procs .head .by{margin-left:auto;font-size:13px;opacity:.75}
+  .procs table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  .procs td{padding:5px 0;font-size:18px;vertical-align:baseline}
+  .procs td.name{max-width:0;width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:16px}
+  .procs td.num{text-align:right;width:20%;opacity:.72}
+  .procs tr.top td{opacity:1}
+
+  /* ================= ディスク ================= */
+  .disks .row{display:flex;align-items:center;gap:14px;padding:6px 0;font-size:17px}
+  .disks .row .name{width:44px;opacity:.72}
+  .disks .row .bar{flex:1;height:3px;background:rgba(255,255,255,.16);border-radius:2px;position:relative;overflow:hidden}
+  .disks .row .bar > i{position:absolute;inset:0 auto 0 0;background:var(--accent,#fff);border-radius:2px}
+  .disks .row .num{width:112px;text-align:right;opacity:.6;font-variant-numeric:tabular-nums}
+
+  /* ================= ネットワーク ================= */
+  .net .row{display:flex;align-items:baseline;gap:12px;font-size:22px;padding:3px 0}
+  .net .row .k{font-size:14px;letter-spacing:.10em;opacity:.55;width:52px}
+  .net .row .v{font-variant-numeric:tabular-nums}
+  .net .row .u{font-size:14px;opacity:.5}
+
+  /* ---- 揃え ----
+     箱の位置は動かさない。中身の寄せ方だけを変える。
+     .gauge / .net / .procs / .disks / .shortcuts は .w 自身に付くクラスなので、
+     子孫セレクタでそれらを挟むと一致しない。子要素を直接指すこと。 */
+  .w[data-align="left"]   .head,
+  .w[data-align="left"]   .row,
+  .w[data-align="left"]   .grid{justify-content:flex-start}
+
+  .w[data-align="center"] .head,
+  .w[data-align="center"] .row,
+  .w[data-align="center"] .grid{justify-content:center}
+
+  .w[data-align="right"]  .head,
+  .w[data-align="right"]  .row,
+  .w[data-align="right"]  .grid{justify-content:flex-end}
+
+  /* 値や見出しを端へ押し出す指定は、左揃えのときだけ意味がある */
+  .w[data-align="center"] .head .val, .w[data-align="right"] .head .val,
+  .w[data-align="center"] .head .by,  .w[data-align="right"]  .head .by{margin-left:0}
+
+  /* 中身が短い行は幅を張らせない。張ったままだと寄せても動かない。 */
+  .w[data-align="center"] .row .name, .w[data-align="right"] .row .name{width:auto}
+  .w[data-align="center"] .row .num,  .w[data-align="right"]  .row .num{width:auto}
+  .w[data-align="center"] .row .bar,  .w[data-align="right"]  .row .bar{flex:0 0 96px}
+  .w[data-align="center"] .row .k,    .w[data-align="right"]  .row .k{width:auto}
+
+  /* 表は列で組んでいるので、文字の寄せ方だけ合わせる */
+  .w[data-align="center"] td.name{text-align:center}
+  .w[data-align="right"]  td.name{text-align:right}
+
+  /* ================= ショートカット ================= */
+  .shortcuts .grid{display:flex;flex-wrap:wrap;gap:var(--gap,22px)}
+  .shortcuts .item{
+    position:relative;width:var(--cell,76px);
+    display:flex;flex-direction:column;align-items:center;gap:8px;
+    padding:10px 6px;border-radius:var(--radius,12px);
+    transition:background .14s ease, transform .14s cubic-bezier(.22,.61,.36,1);
+  }
+  .shortcuts .item.hot{background:rgba(255,255,255,.14);transform:translateY(-3px)}
+  .shortcuts .item.hot img{transform:scale(1.10)}
+  .shortcuts .item.hot span{opacity:1}
+  .shortcuts .item.press{transform:translateY(0) scale(.93);background:rgba(255,255,255,.22);transition-duration:.06s}
+  .shortcuts .item img{
+    width:var(--icon,52px);height:var(--icon,52px);
+    filter:drop-shadow(0 3px 10px rgba(0,0,0,.6));
+    transition:transform .16s cubic-bezier(.22,.61,.36,1);
+  }
+  /* まだ絵が届いていないときの置き場所。届けば上書きされる。 */
+  .shortcuts .item img.ic:not([src]){
+    filter:none;border-radius:12px;background:rgba(255,255,255,.13);
+  }
+  .shortcuts .item span{
+    font-size:13px;text-align:center;line-height:1.3;opacity:.86;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-family:var(--jp,"Noto Sans JP"),sans-serif;
+    transition:opacity .14s ease;
+  }
+  .shortcuts .item .ripple{
+    position:absolute;left:50%;top:42%;width:10px;height:10px;margin:-5px 0 0 -5px;
+    border-radius:50%;border:2px solid rgba(255,255,255,.9);opacity:0;
+  }
+  .shortcuts .item.go .ripple{animation:ripple .55s cubic-bezier(.22,.61,.36,1)}
+  @keyframes ripple{0%{opacity:.9;transform:scale(1)} 100%{opacity:0;transform:scale(9)}}
+</style>
+</head>
+<body>
+  <div id="bg"></div>
+  <div id="stage"></div>
+
+  <div class="guide v" id="gv"></div>
+  <div class="guide h" id="gh"></div>
+
+  <div id="hint">
+    <span>ウィジェットを<span class="k">ドラッグ</span>で移動 — 端や中央に吸い付きます</span>
+    <span class="done" id="doneBtn">配置を終える</span>
+  </div>
+
+  <div id="empty">
+    <div class="big">このモニターにはまだ何もありません</div>
+    <div class="small">トレイの「設定を開く」→「ウィジェット」から追加できます</div>
+  </div>
+
+<script src="widgets.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  const host  = (window.chrome && chrome.webview) ? chrome.webview : null;
+  const stage = document.getElementById('stage');
+  const gv = document.getElementById('gv'), gh = document.getElementById('gh');
+  const hintDone = document.getElementById('doneBtn');
+  const emptyBox = document.getElementById('empty');
+
+  let monitor = { cssW: innerWidth, cssH: innerHeight, scale: 1, uiScale: 1 };
+  let widgets = [], theme = {}, metrics = null;
+  let editing = false;
+  const nodes = new Map();          // id -> { el, widget, def, tools }
+
+  const SNAP = 12;                  // 吸い付く距離 (CSS px)
+
+  function send(o){ if (host) host.postMessage(o); }
+
+  // ---------------- ホストから ----------------
+  if (host) host.addEventListener('message', e => {
+    const m = e.data; if (!m || !m.t) return;
+    switch (m.t){
+      case 'init':        onInit(m); break;
+      case 'wallpaper':   setWallpaper(m.url); break;
+      case 'metrics':     metrics = m.d; renderMetrics(); break;
+      case 'editMode':    setEdit(m.on); break;
+      case 'hover':       onHover(m.x, m.y); break;
+      case 'previewMove': previewMove(m.id, m.x, m.y); break;
+      case 'commitMove':  commitMove(); break;
+      case 'launched':    onLaunched(m.x, m.y); break;
+      case 'icons':       onIcons(m.items); break;
+    }
+  });
+
+  // ---------------- ショートカットのアイコン ----------------
+  // 設定に残した URL は、キャッシュが作り直されると切れる。表示のたびに要求する。
+
+  function requestIcons(){
+    const paths = [...new Set(
+      [...stage.querySelectorAll('.item[data-path]')]
+        .map(n => n.dataset.path)
+        .filter(Boolean))];
+    if (paths.length) send({ t:'needIcons', paths });
+  }
+
+  function onIcons(items){
+    if (!items) return;
+    for (const it of items){
+      for (const n of stage.querySelectorAll('.item')){
+        if (n.dataset.path !== it.path) continue;
+        const img = n.querySelector('img.ic');
+        if (img) img.src = it.icon;
+      }
+    }
+  }
+
+  // 画像が壊れていたら空にして取り直す
+  stage.addEventListener('error', e => {
+    const img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.classList.contains('ic')) return;
+    img.removeAttribute('src');
+    clearTimeout(requestIcons._t);
+    requestIcons._t = setTimeout(requestIcons, 120);
+  }, true);
+
+  function onInit(m){
+    monitor = m.monitor || monitor;
+    theme   = m.theme   || {};
+    widgets = (m.widgets || []).filter(w => w.visible !== false);
+    applyTheme();
+    build();
+  }
+
+  function applyTheme(){
+    const r = document.documentElement.style;
+    r.setProperty('--font',    `"${theme.font   || 'SF Pro Display'}"`);
+    r.setProperty('--jp',      `"${theme.jpFont || 'Noto Sans JP'}"`);
+    r.setProperty('--tint',    theme.tint    || '#ffffff');
+    r.setProperty('--accent',  theme.accent  || '#ffffff');
+    r.setProperty('--opacity', theme.opacity ?? 1);
+    r.setProperty('--shadow',  theme.shadow  ?? .55);
+    document.body.dataset.surface = theme.surface || 'none';
+  }
+
+  function setWallpaper(url){
+    document.getElementById('bg').style.backgroundImage = url ? `url("${url}")` : 'none';
+  }
+
+  function setEdit(on){
+    editing = on;
+    document.body.classList.toggle('edit', on);
+    emptyBox.classList.toggle('show', on && nodes.size === 0);
+    clearHot();
+    reportHits();
+  }
+
+  // ---------------- 組み立て ----------------
+
+  const TOOLS = [
+    { a:'move',   ico:'✥', tip:'ドラッグで移動' },
+    { a:'config', ico:'⚙', tip:'設定' },
+    { a:'remove', ico:'✕', tip:'削除', cls:'rm' },
+  ];
+
+  function build(){
+    stage.innerHTML = '';
+    nodes.clear();
+
+    for (const w of widgets){
+      const def = ArchWidgets[w.type];
+      if (!def) continue;
+
+      const el = document.createElement('div');
+      el.className = 'w ' + w.type;
+      el.dataset.id = w.id;
+      def.mount(el, w.options || {}, { theme });
+
+      // ハンドル。配置モードで乗せたときだけ出る。
+      const tools = document.createElement('div');
+      tools.className = 'tools';
+      tools.innerHTML =
+        `<span class="label">${def.label || w.type}</span>` +
+        TOOLS.map(t => `<span class="t ${t.cls||''}" data-a="${t.a}" title="${t.tip}">${t.ico}</span>`).join('');
+      el.appendChild(tools);
+
+      // 幅を測ってから位置を決めるので、先に入れる
+      stage.appendChild(el);
+      nodes.set(w.id, { el, widget: w, def, tools });
+      place(el, w);
+    }
+
+    emptyBox.classList.toggle('show', editing && nodes.size === 0);
+    tickClocks();
+    renderMetrics();
+    requestAnimationFrame(() => { reportHits(); requestIcons(); });
+  }
+
+  // 書体が変わると中身の幅が変わり、当たり判定の矩形もずれる。適用後に取り直す。
+  if (document.fonts && document.fonts.ready)
+    document.fonts.ready.then(reportHits);
+
+  /**
+   * 揃えは箱の中身の寄せ方だけを変える。箱そのものは動かさない。
+   * x は常に箱の左端(画面幅に対する比率)。
+   */
+  function alignOf(el){ return el.dataset.align || 'left'; }
+
+  function place(el, w){
+    // 拡大率の違うモニターでは、この面は親(主モニター)の倍率で描かれてしまう。
+    // 本来の倍率との比をかけて見た目を揃える。
+    // getBoundingClientRect は transform 込みを返すので当たり判定はそのまま正しい。
+    const k = monitor.uiScale || 1;
+    if (Math.abs(k - 1) > 0.001){
+      el.style.transformOrigin = '0 0';
+      el.style.transform = `scale(${k})`;
+    } else {
+      el.style.transform = '';
+    }
+
+    el.style.top  = (w.y * monitor.cssH) + 'px';
+    el.style.left = (w.x * monitor.cssW) + 'px';
+  }
+
+  // ---------------- 更新 ----------------
+
+  function renderMetrics(){
+    if (!metrics) return;
+    for (const { el, widget, def } of nodes.values())
+      if (def.metrics) def.metrics(el, metrics, widget.options || {});
+  }
+
+  function tickClocks(){
+    const now = new Date();
+    for (const { el, widget, def } of nodes.values())
+      if (def.tick) def.tick(el, now, widget.options || {});
+
+    const needsSec = widgets.some(w =>
+      ArchWidgets[w.type]?.tick && (w.options?.showSeconds ?? true));
+    const delay = needsSec
+      ? 1000 - now.getMilliseconds() + 12
+      : 60000 - (now.getSeconds()*1000 + now.getMilliseconds()) + 30;
+    setTimeout(tickClocks, Math.max(60, delay));
+  }
+
+  // ---------------- 当たり判定をホストへ ----------------
+  // 壁紙レイヤーの窓はアイコン層の下なのでクリックが届かない。
+  // ホスト側のマウスフックに矩形を渡し、そこから転送してもらう。
+
+  let hitTimer = 0;
+  function reportHits(){
+    clearTimeout(hitTimer);
+    hitTimer = setTimeout(() => {
+      const rects = [];
+
+      if (editing){
+        // 「配置を終える」ボタン
+        const d = hintDone.getBoundingClientRect();
+        rects.push({ id:'__done', x:d.left, y:d.top, w:d.width, h:d.height, action:'done' });
+
+        for (const { el, widget, tools } of nodes.values()){
+          // ハンドルは本体より手前に判定させたいので先に積む。
+          // バーは常に配置されているので、見えているもの(=ホバー中)だけを拾う。
+          if (el.classList.contains('hot') || el.classList.contains('grabbing')){
+            tools.querySelectorAll('.t').forEach(t => {
+              const r = t.getBoundingClientRect();
+              rects.push({ id: widget.id, x:r.left, y:r.top, w:r.width, h:r.height, action: t.dataset.a });
+            });
+          }
+          const r = el.getBoundingClientRect();
+          rects.push({ id: widget.id, x:r.left, y:r.top, w:r.width, h:r.height, action:'move' });
+        }
+      } else {
+        for (const { el, widget, def } of nodes.values())
+          if (def.hits) for (const h of def.hits(el, widget)) rects.push(h);
+      }
+
+      send({ t:'hits', rects });
+    }, 50);
+  }
+
+  // ---------------- ホバー ----------------
+  // フック越しなので :hover が効かない。ホストからカーソル位置を受け取って当てる。
+
+  let hotEl = null, hotItem = null;
+
+  function clearHot(){
+    if (hotEl){ hotEl.classList.remove('hot'); hotEl = null; }
+    if (hotItem){ hotItem.classList.remove('hot','press'); hotItem = null; }
+    document.querySelectorAll('.tools .t.on').forEach(t => t.classList.remove('on'));
+    hintDone.classList.remove('on');
+  }
+
+  function onHover(x, y){
+    if (x == null){ clearHot(); return; }
+
+    // 配置モード: ウィジェット本体とハンドル
+    if (editing){
+      hintDone.classList.toggle('on', inside(hintDone, x, y));
+
+      // ツールバーはウィジェットの枠の外(上)にある。両方を合わせた範囲で判定しないと
+      // バーへカーソルを動かした瞬間にバーが消える。
+      let found = null, foundTool = null;
+      for (const { el, tools } of nodes.values()){
+        if (insideUnion(el, tools, x, y)) found = el;
+        if (el.classList.contains('hot'))
+          tools.querySelectorAll('.t').forEach(t => { if (inside(t, x, y)) foundTool = t; });
+      }
+      if (found !== hotEl){
+        if (hotEl) hotEl.classList.remove('hot');
+        hotEl = found;
+        if (hotEl) hotEl.classList.add('hot');
+        reportHits();                       // ハンドルの出現で判定が変わる
+      }
+      document.querySelectorAll('.tools .t.on').forEach(t => t.classList.remove('on'));
+      if (foundTool) foundTool.classList.add('on');
+      return;
+    }
+
+    // 通常モード: ショートカットの粒
+    let item = null;
+    for (const { el } of nodes.values())
+      el.querySelectorAll('.shortcuts .item, .item').forEach(n => { if (inside(n, x, y)) item = n; });
+
+    if (item !== hotItem){
+      if (hotItem) hotItem.classList.remove('hot');
+      hotItem = item;
+      if (hotItem) hotItem.classList.add('hot');
+    }
+  }
+
+  function inside(el, x, y){
+    const r = el.getBoundingClientRect();
+    return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+  }
+
+  /// ウィジェット本体とツールバーを囲む一続きの範囲。間の隙間も含める。
+  function insideUnion(el, tools, x, y){
+    const a = el.getBoundingClientRect();
+    const b = tools.getBoundingClientRect();
+    const pad = 8;
+    const left   = Math.min(a.left,   b.left)   - pad;
+    const right  = Math.max(a.right,  b.right)  + pad;
+    const top    = Math.min(a.top,    b.top)    - pad;
+    const bottom = Math.max(a.bottom, b.bottom) + pad;
+    return x >= left && x < right && y >= top && y < bottom;
+  }
+
+  function onLaunched(x, y){
+    for (const { el } of nodes.values()){
+      el.querySelectorAll('.item').forEach(n => {
+        if (!inside(n, x, y)) return;
+        n.classList.add('press');
+        setTimeout(() => { n.classList.remove('press'); n.classList.add('go'); }, 90);
+        setTimeout(() => n.classList.remove('go'), 700);
+      });
+    }
+  }
+
+  // ---------------- ドラッグと吸い付き ----------------
+
+  let moving = null;
+
+  function previewMove(id, fx, fy){
+    const n = nodes.get(id);
+    if (!n) return;
+
+    n.el.classList.add('grabbing');
+
+    let left = fx * monitor.cssW;
+    let top  = fy * monitor.cssH;
+
+    // 画面の端・中央・他のウィジェットの辺に吸い付く
+    const r  = n.el.getBoundingClientRect();
+    const gwv = [], gwh = [];
+    for (const o of nodes.values()){
+      if (o.widget.id === id) continue;
+      const q = o.el.getBoundingClientRect();
+      gwv.push(q.left, q.right, q.left + q.width/2);
+      gwh.push(q.top, q.bottom, q.top + q.height/2);
+    }
+    const M = 48;
+    const vs = [M, monitor.cssW/2, monitor.cssW - M, ...gwv];
+    const hs = [M, monitor.cssH/2, monitor.cssH - M, ...gwh];
+
+    let snapV = null, snapH = null;
+    for (const t of vs){
+      for (const [edge, off] of [[left,0],[left + r.width, r.width],[left + r.width/2, r.width/2]]){
+        if (Math.abs(edge - t) <= SNAP){ left = t - off; snapV = t; break; }
+      }
+      if (snapV !== null) break;
+    }
+    for (const t of hs){
+      for (const [edge, off] of [[top,0],[top + r.height, r.height],[top + r.height/2, r.height/2]]){
+        if (Math.abs(edge - t) <= SNAP){ top = t - off; snapH = t; break; }
+      }
+      if (snapH !== null) break;
+    }
+
+    gv.classList.toggle('on', snapV !== null);
+    gh.classList.toggle('on', snapH !== null);
+    if (snapV !== null) gv.style.left = snapV + 'px';
+    if (snapH !== null) gh.style.top  = snapH + 'px';
+
+    n.el.style.left = left + 'px';
+    n.el.style.top  = top  + 'px';
+    moving = { id, fx: left / monitor.cssW, fy: top / monitor.cssH };
+  }
+
+  function commitMove(){
+    gv.classList.remove('on'); gh.classList.remove('on');
+    for (const { el } of nodes.values()) el.classList.remove('grabbing');
+    if (!moving) return;
+
+    const n = nodes.get(moving.id);
+    if (n){ n.widget.x = moving.fx; n.widget.y = moving.fy; }
+    send({ t:'moveWidget', id: moving.id, x: moving.fx, y: moving.fy });
+    moving = null;
+    reportHits();
+  }
+
+  addEventListener('resize', () => {
+    monitor.cssW = innerWidth;
+    monitor.cssH = innerHeight;
+    for (const { el, widget } of nodes.values()) place(el, widget);
+    reportHits();
+  });
+
+  send({
+    t: 'ready',
+    viewport: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio },
+  });
+})();
+</script>
+</body>
+</html>

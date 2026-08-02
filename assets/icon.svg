@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!--
+    ArchClock のアイコン。
+    黒地に白の細い円と針が2本だけ。目盛りも数字も置かない。
+    小さいサイズで潰れないよう、線幅は直径に対して十分に太くとってある。
+    時刻は 10:10 ではなく、左右非対称に見える 1:50 付近に置いて
+    「置き時計の写真」的な既視感を避けている。
+  -->
+  <rect width="256" height="256" rx="56" fill="#0A0A0B"/>
+
+  <g fill="none" stroke="#F4F3F0" stroke-linecap="round">
+    <!-- 文字盤 -->
+    <circle cx="128" cy="128" r="78" stroke-width="11"/>
+    <!-- 長針 : 上へ -->
+    <path d="M128 128 L128 76"  stroke-width="11"/>
+    <!-- 短針 : 右下へ、長針より短く -->
+    <path d="M128 128 L166 152" stroke-width="11"/>
+  </g>
+</svg>

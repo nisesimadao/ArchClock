@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>ArchClock の設定</title>
+<style>
+  /* ------------------------------------------------------------------
+     Fluent の作法に寄せた設定画面。
+     ・保存ボタンは無い。触った時点で反映・保存される。
+     ・ウィジェットの追加はカード一覧から選ぶ (KDE のウィジェット一覧に相当)
+     ・アプリの選択は検索付きのアイコン一覧から選ぶ
+     ------------------------------------------------------------------ */
+  :root{
+    --accent:#0067c0; --accent-2:#0078d4;
+    --bg:#f3f3f3; --layer:#fff; --layer-alt:#fbfbfb;
+    --stroke:rgba(0,0,0,.0578); --stroke-strong:rgba(0,0,0,.16);
+    --text:#1a1a1a; --text-2:#5d5d5d; --text-3:#8a8a8a;
+    --control:#fff; --control-hover:#f6f6f6;
+    --radius:8px; --radius-sm:4px;
+    --shadow:0 8px 26px -6px rgba(0,0,0,.22);
+  }
+  html[data-dark="1"]{
+    --accent:#60cdff; --accent-2:#4cc2ff;
+    --bg:#202020; --layer:#2b2b2b; --layer-alt:#323232;
+    --stroke:rgba(255,255,255,.0698); --stroke-strong:rgba(255,255,255,.10);
+    --text:#fff; --text-2:#cfcfcf; --text-3:#9a9a9a;
+    --control:#373737; --control-hover:#3f3f3f;
+    --shadow:0 8px 26px -6px rgba(0,0,0,.6);
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    display:flex;background:var(--bg);color:var(--text);
+    font-family:"Segoe UI Variable Text","Segoe UI",system-ui,"Noto Sans JP",sans-serif;
+    font-size:14px;line-height:1.5;overflow:hidden;
+  }
+  ::-webkit-scrollbar{width:12px;height:12px}
+  ::-webkit-scrollbar-thumb{background:var(--stroke-strong);border-radius:6px;border:4px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:var(--text-3);background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* ---------- 左のナビゲーション ---------- */
+  nav{width:240px;flex:0 0 240px;padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+  nav h1{font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-size:15px;font-weight:600;padding:12px 14px 16px}
+  nav button{
+    display:flex;align-items:center;gap:12px;padding:9px 12px;border:0;border-radius:var(--radius-sm);
+    background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer;position:relative;
+  }
+  nav button:hover{background:var(--control-hover)}
+  nav button[aria-selected="true"]{background:var(--layer)}
+  nav button[aria-selected="true"]::before{
+    content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+    width:3px;height:16px;border-radius:2px;background:var(--accent);
+  }
+  nav .ico{width:16px;text-align:center;opacity:.8;font-size:15px}
+  nav .status{margin-top:auto;padding:12px 14px;font-size:12px;color:var(--text-3);display:flex;align-items:center;gap:8px}
+  nav .status .dot{width:7px;height:7px;border-radius:50%;background:var(--text-3);transition:background .2s}
+  nav .status.saved .dot{background:#4ac776}
+
+  /* ---------- 本体 ---------- */
+  main{flex:1;overflow-y:auto;padding:12px 24px 48px 0}
+  section{display:none;max-width:920px}
+  section.on{display:block}
+  section > h2{font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-size:28px;font-weight:600;margin:16px 0 6px;letter-spacing:-.01em}
+  section > .lede{color:var(--text-2);margin-bottom:22px}
+  h3{font-size:14px;font-weight:600;margin:26px 0 10px}
+
+  .card{background:var(--layer);border:1px solid var(--stroke);border-radius:var(--radius);margin-bottom:4px}
+  .card + .card{margin-top:-1px}
+  .row{display:flex;align-items:center;gap:16px;padding:14px 16px;min-height:60px}
+  .row + .row{border-top:1px solid var(--stroke)}
+  .row .ico{width:20px;flex:0 0 20px;text-align:center;font-size:17px;opacity:.85}
+  .row .grow{flex:1;min-width:0}
+  .row .title{font-weight:400}
+  .row .desc{color:var(--text-3);font-size:12px;margin-top:1px}
+
+  /* ---------- コントロール ---------- */
+  .toggle{
+    position:relative;width:40px;height:20px;flex:0 0 40px;border-radius:10px;
+    border:1px solid var(--stroke-strong);background:var(--control);cursor:pointer;transition:background .12s;
+  }
+  .toggle::after{
+    content:"";position:absolute;left:4px;top:50%;transform:translateY(-50%);
+    width:12px;height:12px;border-radius:50%;background:var(--text-2);
+    transition:left .14s cubic-bezier(.22,.61,.36,1),background .12s;
+  }
+  .toggle[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
+  .toggle[aria-checked="true"]::after{left:23px;background:#fff}
+
+  select,input[type=text],input[type=number],input[type=search]{
+    background:var(--control);color:var(--text);border:1px solid var(--stroke-strong);
+    border-radius:var(--radius-sm);padding:6px 10px;font:inherit;min-width:150px;
+  }
+  select:hover,input:hover{background:var(--control-hover)}
+  select:focus,input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+
+  input[type=range]{-webkit-appearance:none;width:180px;height:20px;background:transparent}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:var(--stroke-strong)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:18px;height:18px;margin-top:-7px;border-radius:50%;
+    background:var(--accent);border:4px solid var(--layer);box-shadow:0 0 0 1px var(--stroke-strong);cursor:pointer;
+  }
+  input[type=color]{width:44px;height:28px;padding:2px;border:1px solid var(--stroke-strong);border-radius:var(--radius-sm);background:var(--control);cursor:pointer}
+
+  button.btn{
+    padding:6px 16px;border-radius:var(--radius-sm);border:1px solid var(--stroke-strong);
+    background:var(--control);color:var(--text);font:inherit;cursor:pointer;min-height:32px;
+    /* 縮めない・折り返さない。これが無いと横並びで潰れて縦書きになる。 */
+    flex:0 0 auto;white-space:nowrap;
+  }
+  button.btn:hover{background:var(--control-hover)}
+  button.btn.accent{background:var(--accent);border-color:transparent;color:#fff;font-weight:600}
+  html[data-dark="1"] button.btn.accent{color:#06202b}
+  button.btn.accent:hover{filter:brightness(1.08)}
+  button.btn.danger{color:#c42b1c}
+  html[data-dark="1"] button.btn.danger{color:#ff99a4}
+
+  .val{color:var(--text-3);min-width:56px;text-align:right;font-variant-numeric:tabular-nums}
+
+  /* ---------- ウィジェット一覧 ---------- */
+  .bar{display:flex;align-items:center;gap:10px;padding:0 0 14px;flex-wrap:wrap}
+  .bar select{flex:0 1 auto}
+  .wlist{display:flex;flex-direction:column;gap:8px}
+  .witem{background:var(--layer);border:1px solid var(--stroke);border-radius:var(--radius);overflow:hidden}
+  .whead{display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer}
+  .whead .gico{
+    width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    background:var(--layer-alt);border:1px solid var(--stroke);font-size:16px;
+  }
+  .whead .name{font-weight:600;flex:1}
+  .whead .chev{opacity:.55;transition:transform .15s}
+  .witem.open .chev{transform:rotate(90deg)}
+  .wbody{display:none;padding:6px 16px 16px;border-top:1px solid var(--stroke);background:var(--layer-alt)}
+  .witem.open .wbody{display:block}
+  .opt{display:flex;align-items:center;gap:14px;padding:8px 0}
+  .opt label{flex:1;color:var(--text-2)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .chip{
+    display:flex;align-items:center;gap:8px;padding:5px 8px 5px 6px;
+    background:var(--control);border:1px solid var(--stroke-strong);border-radius:999px;font-size:13px;
+  }
+  .chip img{width:20px;height:20px}
+  .chip button{border:0;background:transparent;color:var(--text-3);cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+  .chip button:hover{color:#c42b1c}
+
+  .mon{
+    display:flex;gap:10px;align-items:center;padding:12px 14px;background:var(--layer);
+    border:1px solid var(--stroke);border-radius:var(--radius);margin-bottom:8px;font-size:13px;color:var(--text-2);
+  }
+  .mon b{color:var(--text);font-weight:600}
+  .badge{padding:1px 8px;border-radius:999px;background:var(--accent);color:#fff;font-size:11px;font-weight:600}
+  html[data-dark="1"] .badge{color:#06202b}
+
+  .empty{padding:36px;text-align:center;color:var(--text-3);border:1px dashed var(--stroke-strong);border-radius:var(--radius)}
+
+  /* ---------- 重ねて出す一覧 ---------- */
+  .scrim{
+    position:fixed;inset:0;background:rgba(0,0,0,.42);
+    display:none;align-items:center;justify-content:center;z-index:100;
+  }
+  .scrim.on{display:flex}
+  .dlg{
+    width:min(760px,88vw);max-height:82vh;display:flex;flex-direction:column;
+    background:var(--bg);border:1px solid var(--stroke-strong);border-radius:12px;box-shadow:var(--shadow);
+  }
+  .dlg header{padding:20px 24px 12px}
+  .dlg h3{margin:0;font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-size:20px;font-weight:600}
+  .dlg .sub{color:var(--text-2);font-size:13px;margin-top:3px}
+  .dlg .body{padding:8px 24px;overflow-y:auto;flex:1}
+  .dlg footer{padding:14px 24px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--stroke)}
+  .dlg .search{width:100%;margin:10px 0 4px}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;padding:8px 0 4px}
+  .wcard{
+    display:flex;gap:12px;align-items:flex-start;padding:14px;
+    background:var(--layer);border:1px solid var(--stroke);border-radius:var(--radius);cursor:pointer;
+    transition:background .12s,border-color .12s,transform .12s;
+  }
+  .wcard:hover{background:var(--control-hover);border-color:var(--stroke-strong);transform:translateY(-1px)}
+  .wcard .gico{
+    width:38px;height:38px;flex:0 0 38px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+    background:var(--layer-alt);border:1px solid var(--stroke);font-size:18px;
+  }
+  .wcard .n{font-weight:600;margin-bottom:2px}
+  .wcard .d{font-size:12px;color:var(--text-3);line-height:1.4}
+
+  .apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;padding:8px 0}
+  .app{
+    display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);
+    cursor:pointer;transition:background .1s;
+  }
+  .app:hover{background:var(--control-hover)}
+  .app.sel{background:var(--accent);color:#fff}
+  html[data-dark="1"] .app.sel{color:#06202b}
+  .app img{width:26px;height:26px;flex:0 0 26px}
+  .app span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .apps-note{color:var(--text-3);font-size:12px;padding:6px 0}
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>ArchClock</h1>
+  <button data-tab="general"  aria-selected="true"><span class="ico">⚙</span>全般</button>
+  <button data-tab="widgets"  aria-selected="false"><span class="ico">▦</span>ウィジェット</button>
+  <button data-tab="theme"    aria-selected="false"><span class="ico">◐</span>テーマ</button>
+  <button data-tab="monitors" aria-selected="false"><span class="ico">🖵</span>モニター</button>
+  <button data-tab="about"    aria-selected="false"><span class="ico">ⓘ</span>情報</button>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">変更は自動で保存されます</span></div>
+</nav>
+
+<main>
+
+  <!-- ============ 全般 ============ -->
+  <section id="general" class="on">
+    <h2>全般</h2>
+    <div class="lede">触った時点で反映され、保存されます。</div>
+
+    <div class="card">
+      <div class="row">
+        <span class="ico">✥</span>
+        <div class="grow">
+          <div class="title">ウィジェットを配置する</div>
+          <div class="desc">デスクトップ上でドラッグして動かせるようになります。各ウィジェットに移動・設定・削除のハンドルが出ます</div>
+        </div>
+        <div class="toggle" id="editMode" role="switch" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <span class="ico">🖼</span>
+        <div class="grow">
+          <div class="title">壁紙を下地にする</div>
+          <div class="desc">現在の壁紙を切り出して背景に敷きます。切るとデスクトップの壁紙がそのまま見えます</div>
+        </div>
+        <div class="toggle" id="showWallpaper" role="switch" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <span class="ico">⏻</span>
+        <div class="grow">
+          <div class="title">Windows の起動時に開始する</div>
+          <div class="desc">スタートアップに登録します</div>
+        </div>
+        <div class="toggle" id="runAtStartup" role="switch" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <span class="ico">↻</span>
+        <div class="grow">
+          <div class="title">計測の更新間隔</div>
+          <div class="desc">短くすると滑らかになりますが、そのぶん CPU を使います</div>
+        </div>
+        <input type="range" id="metricsInterval" min="500" max="5000" step="250">
+        <span class="val" id="metricsIntervalVal"></span>
+      </div>
+    </div>
+
+    <h3>そのほか</h3>
+    <div class="card">
+      <div class="row">
+        <span class="ico">⛶</span>
+        <div class="grow"><div class="title">今の見た目を画像に保存</div><div class="desc">実際に描かれている内容をそのまま PNG にします</div></div>
+        <button class="btn" id="btnCapture">保存する</button>
+      </div>
+      <div class="row">
+        <span class="ico">⟳</span>
+        <div class="grow"><div class="title">表示を再読み込み</div><div class="desc">見た目がおかしいときに</div></div>
+        <button class="btn" id="btnReload">再読み込み</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ウィジェット ============ -->
+  <section id="widgets">
+    <h2>ウィジェット</h2>
+    <div class="lede">モニターごとに置くものを選べます。位置はデスクトップでドラッグして決めます。</div>
+
+    <div class="bar">
+      <select id="monPick" style="min-width:300px"></select>
+      <div style="flex:1"></div>
+      <button class="btn accent" id="btnExplorer">＋ ウィジェットを追加</button>
+      <button class="btn" id="btnPlace">デスクトップで配置</button>
+    </div>
+
+    <div class="wlist" id="wlist"></div>
+  </section>
+
+  <!-- ============ テーマ ============ -->
+  <section id="theme">
+    <h2>テーマ</h2>
+    <div class="lede">すべてのウィジェットに共通の見た目です。</div>
+    <div class="card">
+      <div class="row"><span class="ico">A</span><div class="grow"><div class="title">欧文フォント</div><div class="desc">数字と英字に使われます</div></div><select id="font"></select></div>
+      <div class="row"><span class="ico">あ</span><div class="grow"><div class="title">和文フォント</div></div><select id="jpFont"></select></div>
+      <div class="row"><span class="ico">◧</span><div class="grow"><div class="title">文字色</div></div><input type="color" id="tint"></div>
+      <div class="row"><span class="ico">●</span><div class="grow"><div class="title">アクセント色</div><div class="desc">バーやグラフに使われます</div></div><input type="color" id="accent"></div>
+      <div class="row"><span class="ico">◑</span><div class="grow"><div class="title">不透明度</div></div><input type="range" id="opacity" min="20" max="100" step="5"><span class="val" id="opacityVal"></span></div>
+      <div class="row"><span class="ico">▨</span><div class="grow"><div class="title">影の強さ</div><div class="desc">明るい壁紙でも読めるようにします</div></div><input type="range" id="shadow" min="0" max="100" step="5"><span class="val" id="shadowVal"></span></div>
+      <div class="row"><span class="ico">▭</span><div class="grow"><div class="title">ウィジェットの地</div><div class="desc">既定は「なし」。文字だけが浮かびます</div></div>
+        <select id="surface"><option value="none">なし</option><option value="glass">すりガラス</option><option value="solid">半透明の黒</option></select>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ モニター ============ -->
+  <section id="monitors">
+    <h2>モニター</h2>
+    <div class="lede">解像度や拡大率が違っても、位置は比率で保存されるので崩れません。</div>
+    <div id="monList"></div>
+  </section>
+
+  <!-- ============ 情報 ============ -->
+  <section id="about">
+    <h2>情報</h2>
+    <div class="lede">ArchClock — デスクトップウィジェット</div>
+    <div class="card">
+      <div class="row"><span class="ico">📁</span><div class="grow"><div class="title">設定ファイル</div><div class="desc">config.json — トレイの「設定フォルダを開く」から辿れます</div></div></div>
+      <div class="row"><span class="ico">⟲</span><div class="grow"><div class="title">初期状態に戻す</div><div class="desc">すべてのウィジェットとテーマが消えます</div></div><button class="btn danger" id="btnReset">リセット</button></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ ウィジェット一覧 ============ -->
+<div class="scrim" id="explorer">
+  <div class="dlg">
+    <header>
+      <h3>ウィジェットを追加</h3>
+      <div class="sub" id="explorerTarget"></div>
+    </header>
+    <div class="body"><div class="cards" id="explorerCards"></div></div>
+    <footer><button class="btn" data-close="explorer">閉じる</button></footer>
+  </div>
+</div>
+
+<!-- ============ アプリの選択 ============ -->
+<div class="scrim" id="picker">
+  <div class="dlg">
+    <header>
+      <h3>アプリを選ぶ</h3>
+      <div class="sub">インストール済みのアプリ（ストアアプリを含む）から選べます。複数選べます。</div>
+      <input type="search" class="search" id="appSearch" placeholder="名前で絞り込む">
+    </header>
+    <div class="body">
+      <div class="apps-note" id="appsNote">読み込んでいます…</div>
+      <div class="apps" id="appList"></div>
+    </div>
+    <footer>
+      <button class="btn" id="btnBrowse">ファイルから選ぶ…</button>
+      <div style="flex:1"></div>
+      <button class="btn" data-close="picker">閉じる</button>
+      <button class="btn accent" id="btnAddApps">追加する</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const host = (window.chrome && chrome.webview) ? chrome.webview : null;
+  const $  = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+
+  let config = null, monitors = [], currentDevice = null;
+  let apps = [], appSel = new Set(), pickerTarget = null;
+
+  const TYPES = {
+    clock:     { name:'時計',                 ico:'🕐', desc:'時刻・日付・週や通日を出します' },
+    cpu:       { name:'CPU 使用率',           ico:'▤', desc:'全体の使用率と、一番食っているプロセス' },
+    memory:    { name:'メモリ使用率',         ico:'▥', desc:'使用量と全体に対する割合' },
+    processes: { name:'プロセス一覧',         ico:'☰', desc:'CPU順・メモリ順で並べた上位' },
+    disk:      { name:'ディスク空き',         ico:'▣', desc:'固定ドライブごとの空き容量' },
+    network:   { name:'ネットワーク',         ico:'⇅', desc:'上りと下りの速度' },
+    shortcuts: { name:'アプリのショートカット', ico:'▦', desc:'よく使うアプリをアイコンで並べて、クリックで起動' },
+  };
+  const FONTS   = ['SF Pro Display','SF Pro Text','Segoe UI Variable Display','Segoe UI','Inter Tight','Roboto','Consolas'];
+  const JPFONTS = ['Noto Sans JP','Yu Gothic UI','Meiryo','BIZ UDPGothic','MS Gothic'];
+
+  function send(o){ if (host) host.postMessage(o); }
+
+  // ---------------- 自動保存 ----------------
+  let saveTimer = 0;
+  function commit(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (!config) return;
+      config.showWallpaper     = getToggle('#showWallpaper');
+      config.runAtStartup      = getToggle('#runAtStartup');
+      config.metricsIntervalMs = +$('#metricsInterval').value;
+      config.theme = {
+        font:$('#font').value, jpFont:$('#jpFont').value,
+        tint:$('#tint').value, accent:$('#accent').value,
+        opacity:+$('#opacity').value/100, shadow:+$('#shadow').value/100,
+        surface:$('#surface').value,
+      };
+      send({ t:'save', config });
+      flash();
+    }, 220);
+  }
+  function flash(){
+    const s = $('#status');
+    $('#statusText').textContent = '保存しました';
+    s.classList.add('saved');
+    clearTimeout(flash._t);
+    flash._t = setTimeout(() => {
+      s.classList.remove('saved');
+      $('#statusText').textContent = '変更は自動で保存されます';
+    }, 1600);
+  }
+
+  // ---------------- ナビ ----------------
+  $$('nav button').forEach(b => b.onclick = () => {
+    $$('nav button').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    $$('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  });
+  $$('[data-close]').forEach(b => b.onclick = () => $('#' + b.dataset.close).classList.remove('on'));
+
+  // ---------------- ホストから ----------------
+  if (host) host.addEventListener('message', e => {
+    const m = e.data; if (!m || !m.t) return;
+    if (m.t === 'state'){
+      document.documentElement.dataset.dark = m.dark ? '1' : '0';
+      config = m.config; monitors = m.monitors || [];
+      if (!currentDevice || !monitors.some(x => x.device === currentDevice))
+        currentDevice = (monitors.find(x => x.primary) || monitors[0] || {}).device;
+      setToggle('#editMode', m.editMode);
+      renderAll();
+    }
+    if (m.t === 'focusWidget') focusWidget(m.device, m.id);
+    if (m.t === 'apps')      onApps(m.apps);
+    if (m.t === 'icons')     onIcons(m.items);
+    if (m.t === 'picked')    { addItems([m]); }
+    if (m.t === 'captured')  { $('#statusText').textContent = `${(m.files||[]).length} 枚保存しました`; $('#status').classList.add('saved'); }
+  });
+
+  // ---------------- トグル ----------------
+  function setToggle(sel, on){ $(sel).setAttribute('aria-checked', on ? 'true' : 'false'); }
+  function getToggle(sel){ return $(sel).getAttribute('aria-checked') === 'true'; }
+  $$('.toggle').forEach(t => {
+    const flip = () => {
+      const on = t.getAttribute('aria-checked') !== 'true';
+      t.setAttribute('aria-checked', on ? 'true' : 'false');
+      if (t.id === 'editMode') send({ t:'editMode', on }); else commit();
+    };
+    t.onclick = flip;
+    t.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); flip(); } };
+  });
+
+  // ---------------- 描画 ----------------
+  function renderAll(){
+    if (!config) return;
+    setToggle('#showWallpaper', config.showWallpaper);
+    setToggle('#runAtStartup',  config.runAtStartup);
+    $('#metricsInterval').value = config.metricsIntervalMs;
+    $('#metricsIntervalVal').textContent = (config.metricsIntervalMs/1000).toFixed(2) + ' 秒';
+
+    const th = config.theme || {};
+    fillSelect('#font', FONTS, th.font);
+    fillSelect('#jpFont', JPFONTS, th.jpFont);
+    $('#tint').value   = th.tint   || '#ffffff';
+    $('#accent').value = th.accent || '#ffffff';
+    $('#opacity').value = Math.round((th.opacity ?? 1)*100);
+    $('#opacityVal').textContent = $('#opacity').value + '%';
+    $('#shadow').value = Math.round((th.shadow ?? .55)*100);
+    $('#shadowVal').textContent = $('#shadow').value + '%';
+    $('#surface').value = th.surface || 'none';
+
+    fillSelect('#monPick', monitors.map(m => ({
+      v:m.device, t:`${short(m.device)} — ${m.w}×${m.h} @ ${m.scale}%${m.primary?'（メイン）':''}`
+    })), currentDevice);
+
+    $('#monList').innerHTML = monitors.map(m => `
+      <div class="mon">
+        <b>${short(m.device)}</b><span>${m.w} × ${m.h} px</span>
+        <span>拡大率 ${m.scale}%</span><span>位置 (${m.x}, ${m.y})</span>
+        <div style="flex:1"></div>
+        <span>${(config.monitors[m.device]||[]).length} 個</span>
+        ${m.primary ? '<span class="badge">メイン</span>' : ''}
+      </div>`).join('');
+
+    renderWidgets();
+  }
+
+  const short = d => String(d).replace(/^\\\\\.\\/, '');
+
+  function fillSelect(sel, items, value){
+    const el = $(sel);
+    el.innerHTML = items.map(i => typeof i === 'string'
+      ? `<option value="${i}">${i}</option>` : `<option value="${i.v}">${i.t}</option>`).join('');
+    if (value != null) el.value = value;
+  }
+
+  function widgetsOf(dev){
+    if (!config.monitors[dev]) config.monitors[dev] = [];
+    return config.monitors[dev];
+  }
+
+  function renderWidgets(){
+    const list = widgetsOf(currentDevice);
+
+    // 作り直しても、開いていた項目とスクロール位置は保つ
+    const wasOpen = new Set(
+      $$('.witem.open').map(n => list[+n.dataset.i]?.id).filter(Boolean));
+    const scrollTop = $('main').scrollTop;
+    const restore = () => {
+      $$('.witem').forEach(n => {
+        if (wasOpen.has(list[+n.dataset.i]?.id)) n.classList.add('open');
+      });
+      $('main').scrollTop = scrollTop;
+    };
+
+    if (!list.length){
+      $('#wlist').innerHTML = `<div class="empty">このモニターにはまだ何もありません。<br>「＋ ウィジェットを追加」から選んでください。</div>`;
+      return;
+    }
+    $('#wlist').innerHTML = list.map((w,i) => {
+      const T = TYPES[w.type] || { name:w.type, ico:'▢' };
+      return `<div class="witem" data-i="${i}">
+        <div class="whead">
+          <span class="chev">›</span>
+          <span class="gico">${T.ico}</span>
+          <span class="name">${T.name}</span>
+          <div class="toggle" data-vis="${i}" role="switch" aria-checked="${w.visible !== false}"></div>
+          <button class="btn danger" data-del="${i}">削除</button>
+        </div>
+        <div class="wbody">${optionsHtml(w,i)}</div>
+      </div>`;
+    }).join('');
+
+    $$('.whead').forEach(h => h.onclick = e => {
+      if (e.target.closest('button') || e.target.closest('.toggle')) return;
+      h.parentElement.classList.toggle('open');
+    });
+    $$('[data-del]').forEach(b => b.onclick = () => { list.splice(+b.dataset.del,1); renderWidgets(); commit(); });
+    $$('[data-vis]').forEach(t => t.onclick = () => {
+      const w = list[+t.dataset.vis];
+      w.visible = !(w.visible !== false);
+      t.setAttribute('aria-checked', String(w.visible));
+      commit();
+    });
+    bindOptions(list);
+    restore();
+  }
+
+  const num  = (w,k,d) => (w.options && w.options[k] != null) ? w.options[k] : d;
+  const bool = (w,k,d) => { const v = w.options && w.options[k]; return v == null ? d : !!v; };
+  const optRow    = (l,c) => `<div class="opt"><label>${l}</label>${c}</div>`;
+  const optToggle = (i,k,on) => `<div class="toggle" data-opt="${i}|${k}" role="switch" aria-checked="${on}"></div>`;
+  const optRange  = (i,k,v,mi,ma,st) => `<input type="range" data-opt="${i}|${k}" min="${mi}" max="${ma}" step="${st||1}" value="${v}"><span class="val">${v}</span>`;
+  const optSelect = (i,k,v,o) => `<select data-opt="${i}|${k}">${o.map(x=>`<option value="${x.v}"${x.v===v?' selected':''}>${x.t}</option>`).join('')}</select>`;
+
+  // 揃えと幅はどのウィジェットにも付ける。これが無いと互いに整列できない。
+  const ALIGN = [{v:'left',t:'左揃え'},{v:'center',t:'中央揃え'},{v:'right',t:'右揃え'}];
+  const commonOpts = (w,i,defAlign,defWidth) =>
+      optRow('揃え', optSelect(i,'align', num(w,'align',defAlign), ALIGN))
+    + (defWidth ? optRow('幅', optRange(i,'width', num(w,'width',defWidth), 120,900,10)) : '');
+
+  const sub = t => `<div class="opt" style="padding-top:14px"><label style="font-weight:600;color:var(--text)">${t}</label></div>`;
+  const optColor = (i,k,v) => `<input type="color" data-opt="${i}|${k}" value="${v}">`;
+  const optText  = (i,k,v,ph) => `<input type="text" data-opt="${i}|${k}" value="${String(v).replace(/"/g,'&quot;')}" placeholder="${ph||''}" style="min-width:180px">`;
+
+  // 表示の基本。どのウィジェットにも付ける。
+  const baseOpts = (w,i,defAlign,defWidth) => sub('表示')
+    + optRow('揃え', optSelect(i,'align', num(w,'align',defAlign), ALIGN))
+    + (defWidth ? optRow('幅', optRange(i,'width', num(w,'width',defWidth), 120,900,10)) : '')
+    + optRow('不透明度', optRange(i,'opacity', num(w,'opacity',100), 20,100,5))
+    + optRow('見出しを出す', optToggle(i,'showHeader', bool(w,'showHeader',true)))
+    + optRow('見出しの文字', optText(i,'label', num(w,'label',''), '既定のまま'));
+
+  // 使用率のウィジェットに共通
+  const gaugeOpts = (w,i) => sub('数値とバー')
+    + optRow('数値の大きさ', optRange(i,'valueSize', num(w,'valueSize',38), 16,120,2))
+    + optRow('小数点',      optRange(i,'decimals', num(w,'decimals',0), 0,2,1))
+    + optRow('バーを出す',   optToggle(i,'showBar', bool(w,'showBar',true)))
+    + sub('しきい値で色を変える')
+    + optRow('この%を超えたら', optRange(i,'warnAt', num(w,'warnAt',0), 0,100,5) + '<span style="color:var(--text-3);font-size:12px">0 で無効</span>')
+    + optRow('そのときの色',   optColor(i,'warnColor', num(w,'warnColor','#ff6b6b')));
+
+  function optionsHtml(w,i){
+    switch (w.type){
+      case 'clock': return ''
+        + sub('表示')
+        + optRow('揃え', optSelect(i,'align', num(w,'align','right'), ALIGN))
+        + optRow('幅',   optRange(i,'width', num(w,'width',0), 0,900,10) + '<span style="color:var(--text-3);font-size:12px">0 で中身なり</span>')
+        + optRow('不透明度', optRange(i,'opacity', num(w,'opacity',100), 20,100,5))
+        + sub('時刻')
+        + optRow('文字の大きさ', optRange(i,'size', num(w,'size',176), 60,420,2))
+        + optRow('太さ',        optRange(i,'weight', num(w,'weight',250), 100,700,50))
+        + optRow('24時間表示',  optToggle(i,'hour24', bool(w,'hour24',true)))
+        + optRow('秒を出す',    optToggle(i,'showSeconds', bool(w,'showSeconds',true)))
+        + sub('日付')
+        + optRow('日付を出す',  optToggle(i,'showDate', bool(w,'showDate',true)))
+        + optRow('書き方',      optSelect(i,'dateStyle', num(w,'dateStyle','jp'),
+                   [{v:'jp',t:'2026年8月2日 (日)'},{v:'short',t:'8月2日 (日)'},{v:'slash',t:'2026/08/02 (日)'}]))
+        + optRow('日付の大きさ', optRange(i,'dateSize', num(w,'dateSize',30), 12,80,1))
+        + sub('補助の行')
+        + optRow('補助を出す',   optToggle(i,'showMeta', bool(w,'showMeta',true)))
+        + optRow('週番号',       optToggle(i,'metaWeek', bool(w,'metaWeek',true)))
+        + optRow('通日',         optToggle(i,'metaDayOfYear', bool(w,'metaDayOfYear',true)))
+        + optRow('残り日数',     optToggle(i,'metaRemain', bool(w,'metaRemain',true)))
+        + optRow('補助の大きさ', optRange(i,'metaSize', num(w,'metaSize',19), 10,48,1));
+
+      case 'cpu': return ''
+        + baseOpts(w,i,'left',300)
+        + gaugeOpts(w,i)
+        + sub('よく食っているプロセス')
+        + optRow('出す数',       optRange(i,'topCount', num(w,'topCount',1), 0,5,1) + '<span style="color:var(--text-3);font-size:12px">0 で出さない</span>')
+        + optRow('文字の大きさ', optRange(i,'subSize', num(w,'subSize',16), 10,36,1));
+
+      case 'memory': return ''
+        + baseOpts(w,i,'left',300)
+        + gaugeOpts(w,i)
+        + sub('数値の出し方')
+        + optRow('主に出すもの', optSelect(i,'mode', num(w,'mode','percent'),
+                   [{v:'percent',t:'使用率 (%)'},{v:'used',t:'使用量 (GB)'},{v:'free',t:'空き (GB)'}]))
+        + optRow('内訳も出す',   optToggle(i,'showSub', bool(w,'showSub',true)))
+        + optRow('内訳の大きさ', optRange(i,'subSize', num(w,'subSize',16), 10,36,1));
+
+      case 'processes': return ''
+        + baseOpts(w,i,'left',420)
+        + sub('並べ方')
+        + optRow('表示する数', optRange(i,'count', num(w,'count',6),3,15,1))
+        + optRow('並び順',     optSelect(i,'sortBy', num(w,'sortBy','cpu'), [{v:'cpu',t:'CPU 使用率順'},{v:'memory',t:'メモリ使用量順'}]))
+        + optRow('並び順の表示', optToggle(i,'showSortLabel', bool(w,'showSortLabel',true)))
+        + sub('列')
+        + optRow('CPU',      optToggle(i,'colCpu', bool(w,'colCpu',true)))
+        + optRow('メモリ',    optToggle(i,'colMem', bool(w,'colMem',true)))
+        + optRow('PID',      optToggle(i,'colPid', bool(w,'colPid',false)))
+        + sub('行')
+        + optRow('文字の大きさ', optRange(i,'rowSize', num(w,'rowSize',18), 10,36,1))
+        + optRow('行の間隔',    optRange(i,'rowGap', num(w,'rowGap',5), 0,20,1));
+
+      case 'disk': return ''
+        + baseOpts(w,i,'left',360)
+        + sub('内容')
+        + optRow('出す数値', optSelect(i,'mode', num(w,'mode','free'),
+                   [{v:'free',t:'空き容量'},{v:'used',t:'使用量'},{v:'percent',t:'使用率'},{v:'both',t:'空き / 全体'}]))
+        + optRow('バーを出す', optToggle(i,'showBar', bool(w,'showBar',true)))
+        + optRow('対象ドライブ', optText(i,'drives', num(w,'drives',''), '空欄で全部  例: C, D'))
+        + optRow('文字の大きさ', optRange(i,'rowSize', num(w,'rowSize',17), 10,36,1));
+
+      case 'network': return ''
+        + baseOpts(w,i,'left',240)
+        + sub('内容')
+        + optRow('下りを出す', optToggle(i,'showDown', bool(w,'showDown',true)))
+        + optRow('上りを出す', optToggle(i,'showUp', bool(w,'showUp',true)))
+        + optRow('単位',      optSelect(i,'unit', num(w,'unit','auto'),
+                   [{v:'auto',t:'自動'},{v:'kb',t:'KB/s に固定'},{v:'mb',t:'MB/s に固定'}]))
+        + optRow('単位を出す', optToggle(i,'showUnit', bool(w,'showUnit',true)))
+        + optRow('下りの見出し', optText(i,'labelDown', num(w,'labelDown','DOWN')))
+        + optRow('上りの見出し', optText(i,'labelUp', num(w,'labelUp','UP')))
+        + optRow('文字の大きさ', optRange(i,'rowSize', num(w,'rowSize',22), 10,48,1));
+
+      case 'shortcuts': return ''
+        + sub('表示')
+        + optRow('揃え', optSelect(i,'align', num(w,'align','left'), ALIGN))
+        + optRow('不透明度', optRange(i,'opacity', num(w,'opacity',100), 20,100,5))
+        + optRow('並べる向き', optSelect(i,'direction', num(w,'direction','row'),
+                   [{v:'row',t:'横に並べる'},{v:'column',t:'縦に並べる'}]))
+        + optRow('1行に並べる数', optRange(i,'columns', num(w,'columns',6),1,12,1))
+        + sub('アイコン')
+        + optRow('大きさ',   optRange(i,'iconSize', num(w,'iconSize',52),28,128,2))
+        + optRow('間隔',     optRange(i,'gap', num(w,'gap',22),6,60,2))
+        + optRow('角の丸み', optRange(i,'radius', num(w,'radius',12),0,32,1))
+        + sub('名前')
+        + optRow('名前を出す',   optToggle(i,'showLabels', bool(w,'showLabels',true)))
+        + optRow('文字の大きさ', optRange(i,'labelSize', num(w,'labelSize',13),8,28,1))
+        + sub('アプリ')
+        + `<div style="margin-top:6px"><button class="btn accent" data-addapp="${i}">＋ アプリを選ぶ</button>
+             <div class="chips" data-chips="${i}">${chipsHtml(w)}</div></div>`;
+
+      default: return '';
+    }
+  }
+
+  function chipsHtml(w){
+    const items = num(w,'items',[]) || [];
+    if (!items.length) return `<div style="color:var(--text-3);font-size:12px;padding:6px 0">まだ何も入っていません</div>`;
+    return items.map((it,n) => `<span class="chip">${it.icon?`<img src="${it.icon}">`:''}${it.name||''}<button data-rm="${n}">×</button></span>`).join('');
+  }
+
+  function bindOptions(list){
+    $$('[data-opt]').forEach(el => {
+      const [i,k] = el.dataset.opt.split('|');
+      const w = list[+i]; w.options = w.options || {};
+      if (el.classList.contains('toggle')){
+        el.onclick = () => {
+          const on = el.getAttribute('aria-checked') !== 'true';
+          el.setAttribute('aria-checked', String(on));
+          w.options[k] = on; commit();
+        };
+      } else if (el.tagName === 'SELECT'){
+        el.onchange = () => { w.options[k] = el.value; commit(); };
+      } else if (el.type === 'range' || el.type === 'number'){
+        el.oninput = () => {
+          w.options[k] = +el.value;
+          const v = el.nextElementSibling;
+          if (v && v.classList.contains('val')) v.textContent = el.value;
+          commit();
+        };
+      } else {
+        // 文字と色。数値に変換すると NaN になって設定が壊れる。
+        el.oninput = () => { w.options[k] = el.value; commit(); };
+      }
+    });
+    $$('[data-addapp]').forEach(b => b.onclick = () => openPicker(+b.dataset.addapp));
+    $$('[data-chips]').forEach(box => {
+      const i = +box.dataset.chips;
+      box.querySelectorAll('[data-rm]').forEach(x => x.onclick = () => {
+        list[i].options.items.splice(+x.dataset.rm,1);
+        box.innerHTML = chipsHtml(list[i]);
+        bindOptions(list); commit();
+      });
+    });
+  }
+
+  // ---------------- ウィジェット一覧(追加) ----------------
+  $('#btnExplorer').onclick = () => {
+    const m = monitors.find(x => x.device === currentDevice);
+    $('#explorerTarget').textContent = m ? `${short(m.device)} に追加します` : '';
+    $('#explorerCards').innerHTML = Object.entries(TYPES).map(([k,T]) => `
+      <div class="wcard" data-type="${k}">
+        <span class="gico">${T.ico}</span>
+        <div><div class="n">${T.name}</div><div class="d">${T.desc}</div></div>
+      </div>`).join('');
+    $$('#explorerCards .wcard').forEach(c => c.onclick = () => {
+      widgetsOf(currentDevice).push({
+        id: Math.random().toString(36).slice(2,10),
+        type: c.dataset.type, x:0.07, y:0.10, w:400, h:200, visible:true, options:{},
+      });
+      $('#explorer').classList.remove('on');
+      renderWidgets(); commit();
+      const items = $$('.witem'); items[items.length-1]?.classList.add('open');
+    });
+    $('#explorer').classList.add('on');
+  };
+
+  $('#btnPlace').onclick = () => { setToggle('#editMode', true); send({ t:'editMode', on:true }); };
+
+  // ---------------- アプリの選択 ----------------
+  function openPicker(widgetIndex){
+    pickerTarget = widgetIndex;
+    appSel.clear();
+    $('#appSearch').value = '';
+    $('#picker').classList.add('on');
+    if (apps.length) renderApps(); else { $('#appsNote').textContent = '読み込んでいます…'; $('#appList').innerHTML = ''; send({ t:'listApps' }); }
+    setTimeout(() => $('#appSearch').focus(), 60);
+  }
+
+  function onApps(list){ apps = list || []; renderApps(); }
+
+  // アイコンは裏で描かれて少しずつ届く。届いたぶんだけ差し込む。
+  function onIcons(items){
+    if (!items) return;
+    const byPath = new Map(apps.map(a => [a.path, a]));
+    for (const it of items){
+      const a = byPath.get(it.path);
+      if (a) a.icon = it.icon;
+      const node = $('#appList').querySelector(`.app[data-path="${cssEscape(it.path)}"] .ph`);
+      if (node){
+        const img = document.createElement('img');
+        img.src = it.icon;
+        node.replaceWith(img);
+      }
+    }
+  }
+  const cssEscape = s => String(s).replace(/["\\]/g, '\\$&');
+
+  function renderApps(){
+    const q = $('#appSearch').value.trim().toLowerCase();
+    const shown = apps.filter(a => !q || a.name.toLowerCase().includes(q));
+    $('#appsNote').textContent =
+      `${shown.length} / ${apps.length} 件 — クリックで選択、もう一度で解除`;
+    $('#appList').innerHTML = shown.slice(0,600).map(a => `
+      <div class="app${appSel.has(a.path)?' sel':''}" data-path="${a.path.replace(/"/g,'&quot;')}">
+        ${a.icon ? `<img src="${a.icon}">`
+                 : `<span class="ph" style="width:26px;height:26px;flex:0 0 26px;border-radius:6px;background:var(--stroke-strong)"></span>`}
+        <span>${a.name}</span>
+      </div>`).join('');
+    $$('#appList .app').forEach(n => n.onclick = () => {
+      const p = n.dataset.path;
+      if (appSel.has(p)) appSel.delete(p); else appSel.add(p);
+      n.classList.toggle('sel');
+    });
+
+    requestVisibleIcons();
+  }
+  $('#appSearch').oninput = renderApps;
+  $('#appList').closest('.body').addEventListener('scroll', () => {
+    clearTimeout(requestVisibleIcons._t);
+    requestVisibleIcons._t = setTimeout(requestVisibleIcons, 120);
+  });
+
+  // 画面に出ている行のアイコンだけを取りに行く。
+  // 全件を頭から描かせると数百件で1分近くかかる。
+  function requestVisibleIcons(){
+    const box = $('#appList').closest('.body');
+    if (!box) return;
+    const br = box.getBoundingClientRect();
+    const want = [];
+    for (const n of $$('#appList .app')){
+      if (!n.querySelector('.ph')) continue;              // もう入っている
+      const r = n.getBoundingClientRect();
+      if (r.bottom < br.top - 200 || r.top > br.bottom + 400) continue;
+      want.push(n.dataset.path);
+      if (want.length >= 60) break;
+    }
+    if (want.length) send({ t:'needIcons', paths: want });
+  }
+
+  $('#btnAddApps').onclick = () => {
+    const picked = apps.filter(a => appSel.has(a.path));
+    if (picked.length) addItems(picked);
+    $('#picker').classList.remove('on');
+  };
+  $('#btnBrowse').onclick = () => send({ t:'pickFile' });
+
+  function addItems(list){
+    if (pickerTarget == null) return;
+    const w = widgetsOf(currentDevice)[pickerTarget];
+    if (!w) return;
+    w.options = w.options || {};
+    w.options.items = w.options.items || [];
+    for (const a of list) w.options.items.push({ name:a.name, path:a.path, icon:a.icon });
+    renderWidgets();
+    $$('.witem')[pickerTarget]?.classList.add('open');
+    commit();
+  }
+
+  // デスクトップのハンドルの歯車から呼ばれる。そのウィジェットの項目まで開いて見せる。
+  function focusWidget(device, id){
+    if (!config) { setTimeout(() => focusWidget(device, id), 150); return; }
+
+    document.querySelector('nav button[data-tab="widgets"]').click();
+    if (device && config.monitors[device]){
+      currentDevice = device;
+      const sel = $('#monPick');
+      if (sel) sel.value = device;
+    }
+    renderWidgets();
+
+    const i = widgetsOf(currentDevice).findIndex(w => w.id === id);
+    if (i < 0) return;
+    const item = $$('.witem')[i];
+    if (!item) return;
+    $$('.witem').forEach(x => x.classList.remove('open'));
+    item.classList.add('open');
+    item.scrollIntoView({ block:'center', behavior:'smooth' });
+
+    // どれを開いたのか分かるように一瞬光らせる
+    item.style.transition = 'outline-color .25s ease';
+    item.style.outline = '2px solid var(--accent)';
+    setTimeout(() => { item.style.outlineColor = 'transparent'; }, 1400);
+    setTimeout(() => { item.style.outline = ''; }, 1800);
+  }
+
+  // ---------------- そのほか ----------------
+  $('#monPick').onchange = e => { currentDevice = e.target.value; renderWidgets(); };
+  $('#metricsInterval').oninput = e => { $('#metricsIntervalVal').textContent = (e.target.value/1000).toFixed(2)+' 秒'; commit(); };
+  $('#opacity').oninput = e => { $('#opacityVal').textContent = e.target.value+'%'; commit(); };
+  $('#shadow').oninput  = e => { $('#shadowVal').textContent  = e.target.value+'%'; commit(); };
+  ['#font','#jpFont','#surface'].forEach(s => $(s).onchange = commit);
+  ['#tint','#accent'].forEach(s => $(s).oninput = commit);
+
+  $('#btnCapture').onclick = () => send({ t:'capture' });
+  $('#btnReload').onclick  = () => send({ t:'reload' });
+  $('#btnReset').onclick   = () => { if (confirm('すべての設定を初期状態に戻します。よろしいですか？')) send({ t:'resetConfig' }); };
+
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape') $$('.scrim.on').forEach(s => s.classList.remove('on'));
+  });
+
+  send({ t:'ready' });
+})();
+</script>
+</body>
+</html>

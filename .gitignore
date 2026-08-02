@@ -1,0 +1,21 @@
+# ビルド成果物
+bin/
+obj/
+
+# publish 先 (配布物は Releases に置く)
+app/
+
+# アイコンの中間ファイル。README で使う 128px と、元の svg / ico だけ追跡する
+assets/icon_*.png
+!assets/icon_128.png
+
+# エディタ
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
