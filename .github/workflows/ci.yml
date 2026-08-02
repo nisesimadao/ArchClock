@@ -1,0 +1,52 @@
+# push と PR のたびにビルドが通るかを確かめる。
+# 成果物も残すので、タグを打つ前に動くものを試せる。
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'assets/screenshots/**'
+      - 'LICENSE'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: restore
+        run: dotnet restore
+
+      # WebView2 が WindowsBase の別版を参照するため MSB3277 が出るが、実害はない。
+      # -warnaserror を付けると必ず落ちるので付けない。
+      - name: build
+        run: dotnet build -c Release --no-restore --nologo
+
+      # 配布と同じ手順まで通しておく。ここで落ちるならリリースも落ちる。
+      - name: publish
+        run: dotnet publish -c Release -o app --no-restore --nologo
+
+      - name: 中身を確かめる
+        shell: pwsh
+        run: |
+          $need = @('ArchClock.exe', 'web\index.html', 'web\settings.html', 'web\widgets.js')
+          $missing = $need | Where-Object { -not (Test-Path "app\$_") }
+          if ($missing) { throw "配布物に入っていません: $($missing -join ', ')" }
+          Get-ChildItem app -Recurse -File |
+            Measure-Object -Property Length -Sum |
+            ForEach-Object { "{0} ファイル / {1:N1} MB" -f $_.Count, ($_.Sum / 1MB) }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ArchClock-${{ github.sha }}
+          path: app/
+          retention-days: 14

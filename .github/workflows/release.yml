@@ -1,38 +1,89 @@
-# タグを打つと配布物を作って Releases に添付する。
+# タグを打つと配布物を作って Releases に並べる。
 #
 #   git tag v1.0.0
 #   git push origin v1.0.0
 #
+# 手で流したいときは Actions から workflow_dispatch でタグ名を渡す。
 name: release
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'リリースするタグ (例 v1.0.0)'
+        required: true
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # リリースノートの生成に履歴が要る
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: publish
-        run: dotnet publish -c Release -o app
-
-      - name: zip
-        run: Compress-Archive -Path app\* -DestinationPath ArchClock.zip
+      - name: バージョンを決める
+        id: v
         shell: pwsh
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            '${{ inputs.tag }}'
+          } else {
+            '${{ github.ref_name }}'
+          }
+          $ver = $tag.TrimStart('v')
+          "tag=$tag"     >> $env:GITHUB_OUTPUT
+          "version=$ver" >> $env:GITHUB_OUTPUT
+          "タグ $tag / バージョン $ver"
 
-      - name: release
-        uses: softprops/action-gh-release@v2
+      - name: publish
+        run: >
+          dotnet publish -c Release -o app --nologo
+          -p:Version=${{ steps.v.outputs.version }}
+          -p:FileVersion=${{ steps.v.outputs.version }}
+          -p:InformationalVersion=${{ steps.v.outputs.version }}
+
+      - name: 中身を確かめる
+        shell: pwsh
+        run: |
+          $need = @('ArchClock.exe', 'web\index.html', 'web\settings.html', 'web\widgets.js')
+          $missing = $need | Where-Object { -not (Test-Path "app\$_") }
+          if ($missing) { throw "配布物に入っていません: $($missing -join ', ')" }
+
+      - name: まとめる
+        shell: pwsh
+        run: |
+          Copy-Item README.md, LICENSE app\
+          Compress-Archive -Path app\* -DestinationPath "ArchClock-${{ steps.v.outputs.tag }}.zip"
+          Get-FileHash "ArchClock-${{ steps.v.outputs.tag }}.zip" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  ArchClock-${{ steps.v.outputs.tag }}.zip" } |
+            Set-Content SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
         with:
-          files: ArchClock.zip
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: ArchClock ${{ steps.v.outputs.tag }}
           generate_release_notes: true
+          files: |
+            ArchClock-${{ steps.v.outputs.tag }}.zip
+            SHA256SUMS.txt
+          body: |
+            ## 入れかた
+
+            `ArchClock-${{ steps.v.outputs.tag }}.zip` を好きな場所に展開して `ArchClock.exe` を実行してください。
+            インストーラーはありません。設定は `%LOCALAPPDATA%\ArchClock\` に作られます。
+
+            [WebView2 ランタイム](https://developer.microsoft.com/microsoft-edge/webview2/)が要ります。
+            Windows 11 には標準で入っています。
+
+            ---

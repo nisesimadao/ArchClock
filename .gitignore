@@ -2,8 +2,9 @@
 bin/
 obj/
 
-# publish 先 (配布物は Releases に置く)
+# publish 先と配布物 (Releases は GitHub Actions が作る)
 app/
+*.zip
 
 # アイコンの中間ファイル。README で使う 128px と、元の svg / ico だけ追跡する
 assets/icon_*.png
